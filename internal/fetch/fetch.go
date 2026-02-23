@@ -1,6 +1,7 @@
 package fetch
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -30,29 +31,51 @@ func New(destination_folder string) *Fetcher {
 	}
 }
 
-func (f Fetcher) Fetch(urlCh <-chan string, resCh chan<- Result) {
-	for url := range urlCh {
-		resp, err := http.Get(url)
-		if err != nil {
-			fmt.Printf("Error while fetching %s\n", url)
+func (f Fetcher) Fetch(ctx context.Context, urlCh <-chan string, resCh chan<- Result) {
+	for {
+		select {
+		case url, ok := <-urlCh:
+			if !ok {
+				return
+			}
+			resp, err := http.Get(url)
+			if err != nil {
+				fmt.Printf("Error while fetching %s\n", url)
+			}
+			defer resp.Body.Close()
+			if resp.StatusCode != http.StatusOK {
+				resCh <- Result{Ok: false, Filename: ""}
+			} else {
+				filename := f.saveResponse(url, resp)
+				resCh <- Result{Ok: true, Filename: filename}
+			}
+		case <-ctx.Done():
+			return
 		}
-		defer resp.Body.Close()
-		if resp.StatusCode != http.StatusOK {
+	}
+}
 
-		}
+func (f Fetcher) saveResponse(url string, resp *http.Response) string {
+	f.makeDestDir()
+	filename := f.getDstFilename(url, resp.Header.Get("content-type"))
+	dstPath := filepath.Join(f.DestinationFolder, filename)
+	dst, err := os.Create(dstPath)
+	log.Print(dstPath)
+	if err != nil {
+		log.Fatalf("Unable to create new file '%s': %s\n", dstPath, err)
+	}
+	_, err = io.Copy(dst, resp.Body)
+	if err != nil {
+		fmt.Printf("Unable to write data to '%s'\n", dstPath)
+	}
+	return filename
+}
 
-		filename := f.getDstFilename(url, resp.Header.Get("content-type"))
-		dstPath := filepath.Join(f.DestinationFolder, filename)
-		dst, err := os.Create(dstPath)
-		if err != nil {
-			log.Fatalf("Unable to create new file '%s': %s\n", dstPath, err)
+func (f Fetcher) makeDestDir() {
+	if _, err := os.Stat(f.DestinationFolder); errors.Is(err, os.ErrNotExist) {
+		if err = os.Mkdir(f.DestinationFolder, os.ModePerm); err != nil {
+			log.Fatalf("Unable to create destination directory %s: %s\n", f.DestinationFolder, err)
 		}
-		_, err = io.Copy(dst, resp.Body)
-		if err != nil {
-			fmt.Printf("Unable to write data to '%s'\n", dstPath)
-		}
-
-		resCh <- Result{Ok: true, Filename: filename}
 	}
 }
 
@@ -60,12 +83,6 @@ func (f Fetcher) getDstFilename(url_ string, contentType string) string {
 	u, err := url.Parse(url_)
 	if err != nil {
 		log.Fatalf("Unable to parse url: %s", url_)
-	}
-
-	if _, err := os.Stat(f.DestinationFolder); errors.Is(err, os.ErrNotExist) {
-		if err = os.Mkdir(f.DestinationFolder, os.ModePerm); err != nil {
-			log.Fatalf("Unable to create destination directory %s: %s\n", f.DestinationFolder, err)
-		}
 	}
 
 	now := time.Now()

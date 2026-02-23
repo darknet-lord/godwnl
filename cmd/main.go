@@ -2,9 +2,11 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"flag"
 	"fmt"
 	"os"
+	"os/signal"
 	"sync"
 
 	"github.com/darknet-lord/godwnl/internal/fetch"
@@ -31,6 +33,8 @@ func readUrls(urlCh chan string) {
 }
 
 func main() {
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer cancel()
 	fetcher := fetch.New(dstFolder)
 	urlCh := make(chan string, maxWorkers)
 	resCh := make(chan fetch.Result)
@@ -58,7 +62,7 @@ func main() {
 		fetchWg.Add(1)
 		go func() {
 			defer fetchWg.Done()
-			fetcher.Fetch(urlCh, resCh)
+			fetcher.Fetch(ctx, urlCh, resCh)
 		}()
 	}
 
