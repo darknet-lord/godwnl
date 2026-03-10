@@ -43,31 +43,28 @@ func main() {
 		readUrls(urlCh)
 	}()
 
-	var resWg sync.WaitGroup
-	resWg.Add(1)
-	go func() {
-		defer resWg.Done()
-		for res := range resCh {
-			switch res.Ok {
-			case true:
-				fmt.Printf("Download completed: %s\n", res.Filename)
-			case false:
-				fmt.Printf("Download failed: %s\n", res.Filename)
-			}
-		}
-	}()
-
-	var fetchWg sync.WaitGroup
+	var wg sync.WaitGroup
 	for i := 0; i < maxWorkers; i++ {
-		fetchWg.Add(1)
+		wg.Add(1)
 		go func() {
-			defer fetchWg.Done()
+			defer wg.Done()
 			fetcher.Fetch(ctx, urlCh, resCh)
 		}()
 	}
 
-	fetchWg.Wait()
-	close(resCh)
-	resWg.Wait()
+	go func() {
+		wg.Wait()
+		close(resCh)
+	}()
+
+	for res := range resCh {
+		switch res.Ok {
+		case true:
+			fmt.Printf("Download completed: %s\n", res.Filename)
+		case false:
+			fmt.Printf("Download failed: %s\n", res.Filename)
+		}
+	}
+
 	fmt.Println("Completed")
 }
