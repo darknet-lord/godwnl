@@ -43,11 +43,18 @@ func (f Fetcher) Fetch(ctx context.Context, urlCh <-chan string, resCh chan<- Re
 				fmt.Printf("Error while fetching %s\n", url)
 			}
 			defer resp.Body.Close()
+			var result Result
 			if resp.StatusCode != http.StatusOK {
-				resCh <- Result{Ok: false, Filename: ""}
+				result = Result{Ok: false, Filename: ""}
 			} else {
 				filename := f.saveResponse(url, resp)
-				resCh <- Result{Ok: true, Filename: filename}
+				result = Result{Ok: true, Filename: filename}
+			}
+			select {
+			case <-ctx.Done():
+				return
+			case resCh <- result:
+
 			}
 		case <-ctx.Done():
 			return
